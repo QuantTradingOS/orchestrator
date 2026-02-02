@@ -1,0 +1,10 @@
+state/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Never commit real API keys. Use .env (copy from .env.example) or pass keys in request body.
+.env
+.env.local
+.env.*.local
