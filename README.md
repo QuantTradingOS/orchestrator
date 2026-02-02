@@ -1,5 +1,7 @@
 # QuantTradingOS Orchestrator
 
+**Context for commits:** See [CONTEXT.md](CONTEXT.md) for repo identity, remote, and commit rules (no parent QuantTradingOS folder on remote).
+
 Orchestration layer for **QuantTradingOS**: one pipeline (regime → portfolio → execution-discipline → allocation → optional guardian) and a **FastAPI** API with Swagger that exposes the pipeline plus all agents (sentiment, insider, trade-journal, guardian, execution-discipline, portfolio-report). Pass API keys in the request body or via environment variables; no keys are stored in the repo.
 
 ## What this repo does
