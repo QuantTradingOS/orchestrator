@@ -11,7 +11,9 @@ OpenAPI JSON: http://localhost:8000/openapi.json
 from __future__ import annotations
 
 import io
+import logging
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Optional
 
@@ -95,10 +97,30 @@ def _resolve_path(value: Optional[str], default: Path) -> Path:
     return p
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    """Start optional pipeline scheduler on startup if env is set; shutdown on exit."""
+    scheduler = None
+    try:
+        from orchestrator.scheduler import get_scheduler_config, start_scheduler
+        minutes, cron = get_scheduler_config()
+        if minutes or cron:
+            scheduler = start_scheduler(minutes=minutes, cron=cron)
+            logging.getLogger("orchestrator.api").info(
+                "Pipeline scheduler started (minutes=%s, cron=%s)", minutes, cron
+            )
+    except Exception as e:
+        logging.getLogger("orchestrator.api").warning("Scheduler not started: %s", e)
+    yield
+    if scheduler:
+        scheduler.shutdown(wait=False)
+
+
 app = FastAPI(
     title="QuantTradingOS API",
     description="Orchestrator pipeline (regime → portfolio → allocation) plus agent endpoints: execution-discipline, guardian, sentiment, insider, trade-journal, portfolio-report.",
     version="0.2.0",
+    lifespan=_lifespan,
 )
 
 

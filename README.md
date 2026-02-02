@@ -8,6 +8,7 @@ Orchestration layer for **QuantTradingOS**: one pipeline (regime → portfolio �
 
 - **CLI:** `python -m orchestrator.run` — Load prices and holdings, run Market-Regime-Agent, Portfolio-Analyst-Agent (real), and Capital-Allocation-Agent. Uses cached execution-discipline score when trades+plan are not provided.
 - **API:** `uvicorn orchestrator.api:app` — **POST/GET /decision** (full pipeline, optional guardian and execution-discipline inputs), plus **POST /execution-discipline**, **POST /guardian**, **POST /sentiment-alert**, **POST /insider-report**, **POST /trade-journal**, **POST /portfolio-report**. Swagger at `/docs`.
+- **Scheduler:** Run the pipeline on an interval or cron (standalone or with the API).
 
 ## Layout
 
@@ -16,10 +17,11 @@ orchestrator/
 ├── __init__.py
 ├── adapters.py    # Map regime/portfolio outputs → Capital Allocation inputs
 ├── run.py         # CLI: load prices, run regime, portfolio, (optional) discipline, allocation, (optional) guardian
+├── scheduler.py   # APScheduler: run pipeline on interval or cron (standalone or with API)
 ├── api.py         # FastAPI app: /decision + agent endpoints; Swagger at /docs
 ├── requirements.txt
 ├── README.md
-├── env.example    # Copy to .env and set FINNHUB_API_KEY, OPENAI_API_KEY (never commit .env)
+├── env.example    # Copy to .env and set FINNHUB_API_KEY, OPENAI_API_KEY, optional ORCHESTRATOR_SCHEDULE_*
 └── state/         # Created at run time: regime_memory.json, discipline_memory.json, discipline_last_score.json
 ```
 
@@ -41,7 +43,7 @@ python -m orchestrator.run --peak-equity 500000 --config Capital-Allocation-Agen
 ## Dependencies
 
 - **Python 3.10+**
-- **pandas**, **numpy**, **yfinance**, **fastapi**, **uvicorn** (see `requirements.txt`)
+- **pandas**, **numpy**, **yfinance**, **fastapi**, **uvicorn**, **apscheduler** (see `requirements.txt`)
 - Sibling agent dirs on disk (same repo root): **Market-Regime-Agent**, **Capital-Allocation-Agent**, **Portfolio-Analyst-Agent**, **Execution-Discipline-Agent**, **Capital-Guardian-Agent**, **Sentiment-Shift-Alert-Agent**, **Equity-Insider-Intelligence-Agent**, **Trade-Journal-Coach-Agent**. They are imported by adding their paths to `sys.path`; no need to `pip install` each agent.
 
 ## Current behavior
@@ -89,6 +91,38 @@ curl http://localhost:8000/health
 curl -X POST http://localhost:8000/decision -H "Content-Type: application/json" -d '{}'
 ```
 
+## Scheduler
+
+The pipeline can run on a **timer** (interval or cron) in two ways.
+
+**1. Standalone** (from repo root):
+
+```bash
+# Every 60 minutes (config from env or CLI)
+python -m orchestrator.scheduler --minutes 60
+
+# Cron: 9:00 weekdays (same as ORCHESTRATOR_SCHEDULE_CRON)
+python -m orchestrator.scheduler --cron "0 9 * * 1-5"
+
+# Config from .env: ORCHESTRATOR_SCHEDULE_MINUTES=60 or ORCHESTRATOR_SCHEDULE_CRON=0 9 * * 1-5
+python -m orchestrator.scheduler
+```
+
+**2. With the API** (scheduler runs in the same process as uvicorn):
+
+Set one of these in the environment before starting the API:
+
+- `ORCHESTRATOR_SCHEDULE_MINUTES=60` — run pipeline every 60 minutes
+- `ORCHESTRATOR_SCHEDULE_CRON=0 9 * * 1-5` — run at 9:00 on weekdays (cron expression)
+
+Example:
+
+```bash
+ORCHESTRATOR_SCHEDULE_MINUTES=60 uvicorn orchestrator.api:app --host 0.0.0.0 --port 8000
+```
+
+The scheduler uses **default paths** (same as `python -m orchestrator.run`): Market-Regime-Agent data, Portfolio-Analyst-Agent portfolio, Capital-Allocation-Agent config. No execution-discipline or guardian in the scheduled run unless you extend `scheduler._run_scheduled_pipeline`.
+
 ### API keys (Finnhub + OpenAI)
 
 Endpoints that need external APIs (**sentiment-alert**, **insider-report**, **trade-journal**) require:
@@ -115,5 +149,4 @@ Swagger UI at `/docs` shows the optional body fields for each endpoint so users 
 
 ## Next steps
 
-- Add **scheduling** (cron or APScheduler) to run the pipeline on a timer.
 - Optionally expose **OpenAPI JSON** as a static file for external tooling.

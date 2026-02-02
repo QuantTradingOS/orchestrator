@@ -7,4 +7,7 @@ yfinance>=0.2.0
 fastapi>=0.100.0
 uvicorn[standard]>=0.22.0
 
+# Scheduling (interval or cron)
+apscheduler>=3.10.0
+
 # Agents are imported from sibling dirs (Market-Regime-Agent, Capital-Allocation-Agent, Portfolio-Analyst-Agent).
