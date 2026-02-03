@@ -1,0 +1,60 @@
+# Full-stack one-command deploy: PostgreSQL + Data service + Orchestrator API
+# Run from workspace root (parent of orchestrator/ and data-ingestion-service/):
+#   docker-compose -f orchestrator/docker-compose.full.yml up --build
+#
+# Then:
+#   Orchestrator API:  http://localhost:8000   Docs: http://localhost:8000/docs
+#   Data service API:  http://localhost:8001   (prices, news, insider)
+#   PostgreSQL:        localhost:5433 (qtos_user / qtos_password / qtos_data) — host 5433 to avoid conflict with local postgres
+
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: qtos-postgres
+    environment:
+      POSTGRES_USER: qtos_user
+      POSTGRES_PASSWORD: qtos_password
+      POSTGRES_DB: qtos_data
+    ports:
+      - "5433:5432"
+    volumes:
+      - qtos_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qtos_user -d qtos_data"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  data-service:
+    build:
+      context: ../data-ingestion-service
+      dockerfile: Dockerfile
+    container_name: qtos-data-service
+    environment:
+      DATABASE_URL: postgresql://qtos_user:qtos_password@postgres:5432/qtos_data
+      TRACKED_SYMBOLS: SPY,QQQ,TLT,AAPL,MSFT
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: sh -c "python -m db.migrate && exec uvicorn api.app:app --host 0.0.0.0 --port 8001"
+
+  api:
+    build:
+      context: ..
+      dockerfile: orchestrator/Dockerfile
+    container_name: qtos-orchestrator
+    environment:
+      DATA_SERVICE_URL: http://data-service:8001
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../orchestrator/state:/app/orchestrator/state
+    # Optional: create .env at workspace root with FINNHUB_API_KEY, OPENAI_API_KEY, etc.
+    # env_file: - ../.env
+    depends_on:
+      - data-service
+
+volumes:
+  qtos_postgres_data:

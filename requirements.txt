@@ -3,9 +3,10 @@ pandas>=1.5.0
 numpy>=1.22
 yfinance>=0.2.0
 
-# FastAPI + Swagger/OpenAPI
+# FastAPI + Swagger/OpenAPI (python-multipart required for form/file uploads)
 fastapi>=0.100.0
 uvicorn[standard]>=0.22.0
+python-multipart>=0.0.6
 
 # Scheduling (interval or cron)
 apscheduler>=3.10.0

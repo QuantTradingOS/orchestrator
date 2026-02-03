@@ -22,7 +22,8 @@ orchestrator/
 ├── api.py         # FastAPI app: /decision + /backtest + agent endpoints; Swagger at /docs
 ├── BACKTEST-PHASE3.md   # Agent-triggered backtest and gating pattern
 ├── Dockerfile     # Build from workspace root: docker build -f orchestrator/Dockerfile -t qtos-api .
-├── docker-compose.yml   # From workspace root: docker-compose -f orchestrator/docker-compose.yml up --build
+├── docker-compose.yml   # From workspace root: orchestrator API only
+├── docker-compose.full.yml  # Full stack: postgres + data-service + orchestrator (one-command deploy)
 ├── .dockerignore  # Copy to workspace root when building to reduce image size
 ├── requirements.txt
 ├── README.md
@@ -231,6 +232,28 @@ You can build and run the API in a container. The **build context must be the wo
 4. API: **http://localhost:8000** — Swagger at **http://localhost:8000/docs**. Health: `curl http://localhost:8000/health`.
 
 State (e.g. `orchestrator/state/`) is persisted via the volume in `docker-compose.yml` so it survives container restarts.
+
+### Full-stack one-command deploy (PostgreSQL + Data service + Orchestrator)
+
+To bring up the **entire stack** (database, data-ingestion-service, and orchestrator API) with one command:
+
+**Prerequisites:** Docker and Docker Compose. Workspace must contain `orchestrator/`, `data-ingestion-service/`, and the agent repos used by the pipeline.
+
+From the **workspace root**:
+
+```bash
+docker-compose -f orchestrator/docker-compose.full.yml up --build
+```
+
+Then:
+
+| Service | URL |
+|---------|-----|
+| **Orchestrator API** | http://localhost:8000 — Swagger: http://localhost:8000/docs |
+| **Data service API** | http://localhost:8001 — prices, news, insider endpoints |
+| **PostgreSQL** | localhost:5433 — user `qtos_user`, db `qtos_data` (host port 5433 to avoid conflict with local postgres) |
+
+The orchestrator container gets `DATA_SERVICE_URL=http://data-service:8001` so `/backtest` with `data_source=data_service` works. Data service runs migrations on startup. Optional: create `.env` at workspace root and uncomment `env_file` in `docker-compose.full.yml` for FINNHUB_API_KEY, OPENAI_API_KEY, etc.
 
 ### API keys (Finnhub + OpenAI)
 
