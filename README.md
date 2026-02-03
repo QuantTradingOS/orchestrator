@@ -7,7 +7,7 @@ Orchestration layer for **QuantTradingOS**: one pipeline (regime → portfolio �
 ## What this repo does
 
 - **CLI:** `python -m orchestrator.run` — Load prices and holdings, run Market-Regime-Agent, Portfolio-Analyst-Agent (real), and Capital-Allocation-Agent. Uses cached execution-discipline score when trades+plan are not provided.
-- **API:** `uvicorn orchestrator.api:app` — **POST/GET /decision** (full pipeline, optional guardian and execution-discipline inputs), plus **POST /execution-discipline**, **POST /guardian**, **POST /sentiment-alert**, **POST /insider-report**, **POST /trade-journal**, **POST /portfolio-report**. Swagger at `/docs`.
+- **API:** `uvicorn orchestrator.api:app` — **POST/GET /decision** (full pipeline), **POST/GET /backtest** (Phase 3: agent-triggered backtest), plus **POST /execution-discipline**, **POST /guardian**, **POST /sentiment-alert**, **POST /insider-report**, **POST /trade-journal**, **POST /portfolio-report**. Swagger at `/docs`.
 - **Scheduler:** Run the pipeline on an interval or cron (standalone or with the API).
 
 ## Layout
@@ -17,8 +17,10 @@ orchestrator/
 ├── __init__.py
 ├── adapters.py    # Map regime/portfolio outputs → Capital Allocation inputs
 ├── run.py         # CLI: load prices, run regime, portfolio, (optional) discipline, allocation, (optional) guardian
+├── backtest_runner.py  # Phase 3: run qtos-core backtest; data from CSV or data service
 ├── scheduler.py   # APScheduler: run pipeline on interval or cron (standalone or with API)
-├── api.py         # FastAPI app: /decision + agent endpoints; Swagger at /docs
+├── api.py         # FastAPI app: /decision + /backtest + agent endpoints; Swagger at /docs
+├── BACKTEST-PHASE3.md   # Agent-triggered backtest and gating pattern
 ├── Dockerfile     # Build from workspace root: docker build -f orchestrator/Dockerfile -t qtos-api .
 ├── docker-compose.yml   # From workspace root: docker-compose -f orchestrator/docker-compose.yml up --build
 ├── .dockerignore  # Copy to workspace root when building to reduce image size
@@ -88,6 +90,23 @@ orchestrator/
 
 5. **Try agent endpoints:** In Swagger (`/docs`), try `/sentiment-alert`, `/insider-report`, `/trade-journal`, etc. (Note: some require `FINNHUB_API_KEY` and `OPENAI_API_KEY`; see "API keys" section below.)
 
+### Run your first backtest (Phase 3)
+
+**Prerequisites:** qtos-core cloned as sibling of `orchestrator/` (same workspace root). Optional: data-ingestion-service running and `DATA_SERVICE_URL` set for live data.
+
+**Steps:**
+
+1. **From workspace root**, ensure qtos-core is present: `ls qtos-core/examples/data/sample_ohlcv.csv`
+2. **Start the API** (if not already): `uvicorn orchestrator.api:app --host 0.0.0.0 --port 8000`
+3. **Run backtest with sample data:**
+   ```bash
+   curl -X POST http://localhost:8000/backtest -H "Content-Type: application/json" -d '{"symbol":"SPY","data_source":"csv","quantity":50}'
+   ```
+   Returns `metrics` (e.g. total_return_pct, sharpe_ratio, max_drawdown_pct), `num_trades`, `status`.
+4. **With data service:** Set `DATA_SERVICE_URL=http://localhost:8001` and use `"data_source":"data_service"` to backtest on data from the data-ingestion-service.
+
+Agents can call `POST /backtest` and gate alerts on metrics (e.g. only alert if `sharpe_ratio > 0.5` and `max_drawdown_pct < 20`). See [BACKTEST-PHASE3.md](BACKTEST-PHASE3.md).
+
 ## Run
 
 From the **QuantTradingOS repo root** (parent of `orchestrator/`):
@@ -144,6 +163,10 @@ uvicorn orchestrator.api:app --reload --host 0.0.0.0 --port 8000
 - **POST /insider-report** — Run Equity-Insider-Intelligence-Agent (symbol; same keys). Returns LLM report text.  
 - **POST /trade-journal** — Run Trade-Journal-Coach-Agent (trades CSV upload or trades_json; OPENAI_API_KEY). Returns metrics + coaching report.  
 - **POST /portfolio-report** — Standalone portfolio analytics (holdings_path [, prices_path ]). Returns total_value, vol_annual, holdings, etc.  
+
+**Backtest (Phase 3: agent-integrated backtesting)**
+
+- **POST/GET /backtest** — Run a backtest using qtos-core. Data from CSV (default: qtos-core sample) or from data-ingestion-service (set `DATA_SERVICE_URL`). Body/params: `symbol`, `data_source` (csv | data_service), `csv_path`, `initial_cash`, `quantity`, `strategy_type` (buy_and_hold), `period` (for data_service). Returns `metrics` (initial_value, final_value, total_pnl, total_return_pct, cagr, sharpe_ratio, max_drawdown, max_drawdown_pct), `num_trades`, `status`. Requires **qtos-core** as sibling of orchestrator. Agents can call this to validate a signal before alerting (e.g. only alert if `sharpe_ratio` > threshold). See [BACKTEST-PHASE3.md](BACKTEST-PHASE3.md) for the gating pattern.
 
 No Swagger file is checked in—FastAPI generates OpenAPI at runtime.
 

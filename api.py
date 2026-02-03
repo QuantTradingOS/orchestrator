@@ -88,6 +88,18 @@ class TradeJournalRequest(BaseModel):
     trades_json: Optional[str] = Field(None, description="JSON array of trades: [{date, symbol, side, qty, entry, exit, fees?}, ...]")
 
 
+class BacktestRequest(BaseModel):
+    """Input for running a backtest (Phase 3: agent-integrated backtesting)."""
+
+    symbol: str = Field("SPY", description="Ticker symbol to backtest")
+    data_source: str = Field("csv", description="'csv' = use csv_path or default sample; 'data_service' = use DATA_SERVICE_URL")
+    csv_path: Optional[str] = Field(None, description="Path to OHLCV CSV (used when data_source=csv); default: qtos-core sample")
+    initial_cash: float = Field(100_000.0, gt=0, description="Starting portfolio value")
+    quantity: float = Field(50.0, gt=0, description="Shares to buy (buy_and_hold strategy)")
+    strategy_type: str = Field("buy_and_hold", description="Strategy: currently only 'buy_and_hold'")
+    period: str = Field("1y", description="Lookback period when data_source=data_service (e.g. 1y, 6mo, 2y)")
+
+
 def _resolve_path(value: Optional[str], default: Path) -> Path:
     if value is None:
         return default
@@ -118,8 +130,8 @@ async def _lifespan(app: FastAPI):
 
 app = FastAPI(
     title="QuantTradingOS API",
-    description="Orchestrator pipeline (regime → portfolio → allocation) plus agent endpoints: execution-discipline, guardian, sentiment, insider, trade-journal, portfolio-report.",
-    version="0.2.0",
+    description="Orchestrator pipeline (regime → portfolio → allocation) plus agent endpoints: execution-discipline, guardian, sentiment, insider, trade-journal, portfolio-report. Phase 3: POST/GET /backtest for agent-triggered backtests (qtos-core).",
+    version="0.3.0",
     lifespan=_lifespan,
 )
 
@@ -193,6 +205,66 @@ def run_decision_get(
         include_guardian=include_guardian,
     )
     return run_decision(body=req)
+
+
+# ---------- Backtest (Phase 3: agent-integrated backtesting) ----------
+
+
+@app.post("/backtest", response_model=dict)
+def run_backtest_post(body: BacktestRequest):
+    """
+    Run a backtest using qtos-core. Data from CSV path or data-ingestion-service (set DATA_SERVICE_URL).
+    Agents can call this to validate a signal before alerting (e.g. only alert if sharpe_ratio > threshold).
+    """
+    csv_path = _resolve_path(body.csv_path, Path()) if body.csv_path else None
+    if csv_path is not None and not csv_path.exists():
+        raise HTTPException(status_code=400, detail=f"CSV not found: {csv_path}")
+    try:
+        from orchestrator.backtest_runner import run_backtest_from_request
+        return run_backtest_from_request(
+            csv_path=csv_path,
+            symbol=body.symbol.upper(),
+            data_source=body.data_source,
+            initial_cash=body.initial_cash,
+            quantity=body.quantity,
+            strategy_type=body.strategy_type,
+            period=body.period,
+        )
+    except ImportError as e:
+        raise HTTPException(
+            status_code=503,
+            detail="Backtest requires qtos-core as sibling of orchestrator. Clone qtos-core into the workspace.",
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logging.getLogger("orchestrator.api").exception("Backtest failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/backtest", response_model=dict)
+def run_backtest_get(
+    symbol: str = "SPY",
+    data_source: str = "csv",
+    csv_path: Optional[str] = None,
+    initial_cash: float = 100_000.0,
+    quantity: float = 50.0,
+    strategy_type: str = "buy_and_hold",
+    period: str = "1y",
+):
+    """Same as POST /backtest but with query params."""
+    req = BacktestRequest(
+        symbol=symbol,
+        data_source=data_source,
+        csv_path=csv_path,
+        initial_cash=initial_cash,
+        quantity=quantity,
+        strategy_type=strategy_type,
+        period=period,
+    )
+    return run_backtest_post(body=req)
 
 
 # ---------- Agent endpoints ----------

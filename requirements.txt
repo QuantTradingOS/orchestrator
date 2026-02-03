@@ -10,4 +10,8 @@ uvicorn[standard]>=0.22.0
 # Scheduling (interval or cron)
 apscheduler>=3.10.0
 
+# Backtest from data service (Phase 3)
+requests>=2.28.0
+
 # Agents are imported from sibling dirs (Market-Regime-Agent, Capital-Allocation-Agent, Portfolio-Analyst-Agent).
+# Backtest requires qtos-core as sibling (see POST /backtest).
