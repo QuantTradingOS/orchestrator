@@ -19,6 +19,9 @@ orchestrator/
 ├── run.py         # CLI: load prices, run regime, portfolio, (optional) discipline, allocation, (optional) guardian
 ├── scheduler.py   # APScheduler: run pipeline on interval or cron (standalone or with API)
 ├── api.py         # FastAPI app: /decision + agent endpoints; Swagger at /docs
+├── Dockerfile     # Build from workspace root: docker build -f orchestrator/Dockerfile -t qtos-api .
+├── docker-compose.yml   # From workspace root: docker-compose -f orchestrator/docker-compose.yml up --build
+├── .dockerignore  # Copy to workspace root when building to reduce image size
 ├── requirements.txt
 ├── README.md
 ├── env.example    # Copy to .env and set FINNHUB_API_KEY, OPENAI_API_KEY, optional ORCHESTRATOR_SCHEDULE_*
@@ -122,6 +125,29 @@ ORCHESTRATOR_SCHEDULE_MINUTES=60 uvicorn orchestrator.api:app --host 0.0.0.0 --p
 ```
 
 The scheduler uses **default paths** (same as `python -m orchestrator.run`): Market-Regime-Agent data, Portfolio-Analyst-Agent portfolio, Capital-Allocation-Agent config. No execution-discipline or guardian in the scheduled run unless you extend `scheduler._run_scheduled_pipeline`.
+
+## Running with Docker
+
+You can build and run the API in a container. The **build context must be the workspace root** (the directory that contains `orchestrator/` and the sibling agent repos).
+
+**Prerequisites:** Docker (and Docker Compose). Your workspace must contain `orchestrator/` plus the agent repos the pipeline needs (e.g. Market-Regime-Agent, Portfolio-Analyst-Agent, Capital-Allocation-Agent).
+
+**Steps:**
+
+1. **Optional:** Copy `orchestrator/.dockerignore` to your workspace root as `.dockerignore` to keep the image smaller (excludes `.git`, `.github-repo`, etc.).
+2. **Optional:** Copy `orchestrator/env.example` to `.env` in the workspace root and set `FINNHUB_API_KEY`, `OPENAI_API_KEY` if you use sentiment/insider/trade-journal endpoints.
+3. From the **workspace root** (parent of `orchestrator/`):
+   ```bash
+   docker-compose -f orchestrator/docker-compose.yml up --build
+   ```
+   Or build and run without Compose:
+   ```bash
+   docker build -f orchestrator/Dockerfile -t qtos-api .
+   docker run -p 8000:8000 --env-file .env qtos-api
+   ```
+4. API: **http://localhost:8000** — Swagger at **http://localhost:8000/docs**. Health: `curl http://localhost:8000/health`.
+
+State (e.g. `orchestrator/state/`) is persisted via the volume in `docker-compose.yml` so it survives container restarts.
 
 ### API keys (Finnhub + OpenAI)
 

@@ -1,0 +1,21 @@
+# Copy this file to your workspace root as .dockerignore when building.
+# From workspace root: cp orchestrator/.dockerignore .dockerignore
+
+.git
+.github-repo
+default
+.gitignore
+CONTEXT.md
+TODO.md
+.env
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.coverage
+htmlcov
+.DS_Store
+*.md
+!orchestrator/README.md
