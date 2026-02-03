@@ -28,6 +28,66 @@ orchestrator/
 └── state/         # Created at run time: regime_memory.json, discipline_memory.json, discipline_last_score.json
 ```
 
+## Getting Started
+
+### Run your first pipeline (CLI)
+
+**Prerequisites:** Python 3.10+, pandas, numpy, yfinance, fastapi, uvicorn, apscheduler. Your workspace must contain `orchestrator/` plus sibling agent repos (Market-Regime-Agent, Portfolio-Analyst-Agent, Capital-Allocation-Agent).
+
+**Steps:**
+
+1. **Set up workspace:** Clone a workspace that includes the orchestrator and required agents, or ensure they're siblings under a common parent directory:
+   ```bash
+   # Example: clone orchestrator and agents into a workspace
+   mkdir QuantTradingOS-workspace && cd QuantTradingOS-workspace
+   git clone https://github.com/QuantTradingOS/orchestrator.git
+   git clone https://github.com/QuantTradingOS/Market-Regime-Agent.git
+   git clone https://github.com/QuantTradingOS/Portfolio-Analyst-Agent.git
+   git clone https://github.com/QuantTradingOS/Capital-Allocation-Agent.git
+   # ... other agents as needed
+   ```
+
+2. **Install dependencies:** From the workspace root (parent of `orchestrator/`):
+   ```bash
+   pip install -r orchestrator/requirements.txt
+   ```
+
+3. **Run the pipeline:**
+   ```bash
+   python -m orchestrator.run
+   ```
+
+   This runs: Market-Regime-Agent → Portfolio-Analyst-Agent → Capital-Allocation-Agent and prints the allocation decision. Uses default paths: `Market-Regime-Agent/data/sample_prices.csv` and `Portfolio-Analyst-Agent/portfolio.csv`.
+
+4. **What happened:** The pipeline loaded prices, detected market regime, computed portfolio metrics, and produced a capital allocation decision (allow_trade, position_size_multiplier, risk_mode, etc.).
+
+5. **Next:** Customize prices/holdings with `--prices` and `--holdings`, or run the API (see below).
+
+### Run your first API (paper run)
+
+**Steps:**
+
+1. **Start the API** (from workspace root):
+   ```bash
+   uvicorn orchestrator.api:app --host 0.0.0.0 --port 8000
+   ```
+
+2. **Open Swagger UI:** http://localhost:8000/docs
+
+3. **Test health:**
+   ```bash
+   curl http://localhost:8000/health
+   ```
+
+4. **Run the pipeline via API:**
+   ```bash
+   curl -X POST http://localhost:8000/decision -H "Content-Type: application/json" -d '{}'
+   ```
+
+   Returns JSON with `regime`, `portfolio`, `decision`, `execution_discipline_score`.
+
+5. **Try agent endpoints:** In Swagger (`/docs`), try `/sentiment-alert`, `/insider-report`, `/trade-journal`, etc. (Note: some require `FINNHUB_API_KEY` and `OPENAI_API_KEY`; see "API keys" section below.)
+
 ## Run
 
 From the **QuantTradingOS repo root** (parent of `orchestrator/`):
