@@ -39,33 +39,18 @@ def load_ohlcv_from_csv(csv_path: Path, symbol: str) -> Any:
 def load_ohlcv_from_data_service(symbol: str, period: str = "1y") -> Any:
     """Load OHLCV from data-ingestion-service. Returns pandas DataFrame with datetime index."""
     import pandas as pd
-    import requests
-    from datetime import datetime, timedelta
-    base = os.environ.get("DATA_SERVICE_URL", "").rstrip("/")
-    if not base:
-        raise ValueError("DATA_SERVICE_URL not set; cannot fetch data from data service")
-    # Map period to end_date and start_date (data service uses start_date, end_date, limit)
-    end_date = datetime.utcnow()
+    from orchestrator.data_client import get_prices
     if period == "1y" or period == "1Y":
-        start_date = end_date - timedelta(days=365)
+        days = 365
     elif period == "6mo":
-        start_date = end_date - timedelta(days=180)
+        days = 180
     elif period == "2y":
-        start_date = end_date - timedelta(days=730)
+        days = 730
     else:
-        start_date = end_date - timedelta(days=365)
-    url = f"{base}/prices/{symbol}"
-    params = {
-        "start_date": start_date.isoformat() + "Z",
-        "end_date": end_date.isoformat() + "Z",
-        "limit": 10000,
-    }
-    r = requests.get(url, params=params, timeout=30)
-    r.raise_for_status()
-    data = r.json()
+        days = 365
+    data = get_prices(symbol.upper(), days=days, limit=10000)
     if not data:
         raise ValueError(f"No price data returned for {symbol}")
-    # API returns list of {symbol, timestamp, open, high, low, close, volume}
     df = pd.DataFrame(data)
     df["datetime"] = pd.to_datetime(df["timestamp"])
     df = df.set_index("datetime").sort_index()

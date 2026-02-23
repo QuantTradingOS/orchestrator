@@ -95,7 +95,7 @@ def run_portfolio(holdings_path: Path, prices_df: pd.DataFrame) -> dict:
     }
 
 
-def run_regime(prices: pd.DataFrame, state_dir: Path):
+def run_regime(prices: pd.DataFrame, state_dir: Path, skill_context: str | None = None):
     """Run Market-Regime-Agent; return RegimeDecision as dict."""
     _setup_paths()
     from src.agent import MarketRegimeAgent  # Market-Regime-Agent
@@ -103,16 +103,18 @@ def run_regime(prices: pd.DataFrame, state_dir: Path):
     memory_path = str(state_dir / "regime_memory.json")
     state_dir.mkdir(parents=True, exist_ok=True)
     agent = MarketRegimeAgent(memory_path=memory_path)
+    # skill_context is available for future agent use; not passed to avoid signature change
     decision, action = agent.run(prices)
     return dataclasses.asdict(decision)
 
 
-def run_allocation(inputs: dict, config_path: Path) -> dict:
+def run_allocation(inputs: dict, config_path: Path, skill_context: str | None = None) -> dict:
     """Run Capital-Allocation-Agent; return decision dict."""
     _setup_paths()
     from agent import CapitalAllocationAgent  # Capital-Allocation-Agent
 
     agent = CapitalAllocationAgent(config_path=str(config_path))
+    # skill_context is available for future agent use; not passed to avoid signature change
     return agent.decide(inputs)
 
 
@@ -163,6 +165,7 @@ def _run_guardian(
     recent_losses: int = 0,
     price: float | None = None,
     atr: float | None = None,
+    skill_context: str | None = None,
 ) -> dict:
     """Run Capital-Guardian-Agent; return decision + optional stop_distance and position_size."""
     _setup_paths(extra=["Capital-Guardian-Agent"])
@@ -211,6 +214,9 @@ def run_pipeline(
     include_guardian: bool = False,
     guardian_price: float | None = None,
     guardian_atr: float | None = None,
+    regime_skill_context: str | None = None,
+    allocation_skill_context: str | None = None,
+    guardian_skill_context: str | None = None,
 ) -> dict:
     """
     Run full pipeline: regime → portfolio → [execution-discipline] → allocation → [guardian].
@@ -220,7 +226,7 @@ def run_pipeline(
 
     prices = load_prices(prices_path)
     prices_df = prices_for_portfolio(prices)
-    regime_output = run_regime(prices, state_dir)
+    regime_output = run_regime(prices, state_dir, skill_context=regime_skill_context)
     portfolio_output = run_portfolio(holdings_path, prices_df)
     regime_label = regime_output.get("label", "Unknown")
 
@@ -242,7 +248,7 @@ def run_pipeline(
         execution_discipline_score=execution_score,
         peak_equity=peak,
     )
-    decision = run_allocation(inputs, config_path)
+    decision = run_allocation(inputs, config_path, skill_context=allocation_skill_context)
 
     result = {
         "regime": regime_output,
@@ -264,6 +270,7 @@ def run_pipeline(
             regime_label=regime_label,
             price=guardian_price,
             atr=guardian_atr,
+            skill_context=guardian_skill_context,
         )
         result["guardian_guardrails"] = guardian_result
 

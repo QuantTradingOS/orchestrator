@@ -20,6 +20,13 @@ from typing import Any, Optional
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
+from skill_traversal import (
+    traverse_skill_graph,
+    get_shared_context,
+    get_verified_performance,
+    format_skill_context,
+)
+
 # Repo root = parent of orchestrator/
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -111,8 +118,16 @@ def _resolve_path(value: Optional[str], default: Path) -> Path:
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    """Start optional pipeline scheduler on startup if env is set; shutdown on exit."""
+    """Start optional pipeline scheduler on startup if env is set; data service health check; shutdown on exit."""
     scheduler = None
+    try:
+        from orchestrator.data_client import health_check
+        if not health_check():
+            print("WARNING: Data service not reachable at startup. Agents may fail on data fetches.")
+        else:
+            print("Data service: connected")
+    except Exception as e:
+        logging.getLogger("orchestrator.api").warning("Data service health check failed: %s", e)
     try:
         from orchestrator.scheduler import get_scheduler_config, start_scheduler
         minutes, cron = get_scheduler_config()
@@ -169,6 +184,57 @@ def run_decision(body: Optional[DecisionRequest] = None):
 
     from orchestrator.run import run_pipeline
 
+    # Skill graph context for each agent (injected before agent calls)
+    try:
+        import pandas as pd
+        prices_header = pd.read_csv(prices_path, nrows=0)
+        symbols = [c for c in prices_header.columns if c.lower() not in ("date", "datetime")]
+        if not symbols:
+            symbols = ["SPY", "QQQ", "TLT"]
+    except Exception:
+        symbols = ["SPY", "QQQ", "TLT"]
+    regime_task_context = f"Market regime detection and classification. Current symbols: {symbols}. Task: classify current market regime."
+    regime_skills = traverse_skill_graph(
+        task_context=regime_task_context,
+        agent_name="Market-Regime-Agent",
+        top_k=5,
+    )
+    regime_skill_context = format_skill_context(regime_skills)
+
+    allocation_task_context = "Capital allocation and position sizing given regime and portfolio state."
+    allocation_skills = traverse_skill_graph(
+        task_context=allocation_task_context,
+        agent_name="Capital-Allocation-Agent",
+        top_k=5,
+    )
+    allocation_skill_context = format_skill_context(allocation_skills)
+
+    guardian_skill_context = ""
+    if req.include_guardian:
+        guardian_task_context = "Pre-trade risk evaluation, position sizing, and stop loss. Current regime and portfolio drawdown context."
+        guardian_skills = traverse_skill_graph(
+            task_context=guardian_task_context,
+            agent_name="Capital-Guardian-Agent",
+            top_k=5,
+        )
+        guardian_skill_context = format_skill_context(guardian_skills)
+
+    # Verified performance for Sigmodx-style weighting (when combining intelligence signals)
+    regime_performance = get_verified_performance("Market-Regime-Agent")
+    sentiment_performance = get_verified_performance("Sentiment-Shift-Alert-Agent")
+    insider_performance = get_verified_performance("Equity-Insider-Intelligence-Agent")
+    total_weight = (
+        regime_performance["skill_percentile"]
+        + sentiment_performance["skill_percentile"]
+        + insider_performance["skill_percentile"]
+    )
+    result_verified = {
+        "regime": regime_performance,
+        "sentiment": sentiment_performance,
+        "insider": insider_performance,
+        "total_weight": total_weight,
+    }
+
     try:
         result = run_pipeline(
             prices_path=prices_path,
@@ -182,7 +248,11 @@ def run_decision(body: Optional[DecisionRequest] = None):
             include_guardian=req.include_guardian,
             guardian_price=req.guardian_price,
             guardian_atr=req.guardian_atr,
+            regime_skill_context=regime_skill_context or None,
+            allocation_skill_context=allocation_skill_context or None,
+            guardian_skill_context=guardian_skill_context or None,
         )
+        result["verified_performance"] = result_verified
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
